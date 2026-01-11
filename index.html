@@ -3,114 +3,132 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI & Note Workflow Canvas</title>
+    <title>AI Workspace - Cloud Sync</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
         body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; overflow: hidden; background-color: #f8fafc; }
-        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(226, 232, 240, 0.8); transition: all 0.2s ease; }
-        .grid-bg { background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 30px 30px; opacity: 0.2; }
-        .node-glow:hover { box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.15); }
-        .active-project { border: 2px solid #4f46e5 !important; }
+        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(226, 232, 240, 0.8); }
+        .grid-bg { background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 30px 30px; opacity: 0.15; }
+        .node-glow:hover { box-shadow: 0 20px 40px -10px rgba(79, 70, 229, 0.1); }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
-        // 고정 아이콘 (SVG)
-        const Icon = ({ name, color = "currentColor", size = 20 }) => {
+        // Firebase 설정 (환경 변수 사용)
+        const firebaseConfig = JSON.parse(__firebase_config);
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-ai-app';
+
+        // SVG Icons
+        const Icon = ({ name, size = 20 }) => {
             const icons = {
-                Zap: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>,
-                Settings: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>,
-                Play: <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>,
-                Folder: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>,
-                Plus: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>,
-                StickyNote: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"></path><path d="M15 3v6h6"></path></svg>,
-                Trash: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                Zap: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>,
+                Settings: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>,
+                Plus: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>,
+                Folder: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>,
+                StickyNote: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"></path><path d="M15 3v6h6"></path></svg>,
+                Trash: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
+                Play: <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
             };
             return <span>{icons[name] || null}</span>;
         };
 
         const App = () => {
+            const [user, setUser] = useState(null);
             const [view, setView] = useState('dashboard');
-            const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
-            const [showApiSettings, setShowApiSettings] = useState(false);
+            const [projects, setProjects] = useState([]);
+            const [currentProjectId, setCurrentProjectId] = useState(null);
             const [isAiLoading, setIsAiLoading] = useState(false);
-            
-            // 전체 프로젝트 데이터 (로컬 스토리지 저장 가능)
-            const [projects, setProjects] = useState(() => {
-                const saved = localStorage.getItem('ai_projects_data');
-                return saved ? JSON.parse(saved) : [
-                    {
-                        id: 'p-' + Date.now(),
-                        title: '기본 프로젝트',
-                        description: '나의 첫 번째 워크플로우와 메모장',
-                        nodes: [
-                            { id: 'n1', type: 'Input', x: 50, y: 100, content: 'AI에게 할 질문을 적어보세요.', status: 'ready' },
-                            { id: 'n2', type: 'Output', x: 400, y: 100, content: '결과가 여기에 표시됩니다.', status: 'idle' },
-                            { id: 'm1', type: 'Memo', x: 50, y: 400, content: '이것은 개인 메모입니다. 자유롭게 지우고 쓰세요!', status: 'personal' }
-                        ]
-                    }
-                ];
-            });
+            const [showApiSettings, setShowApiSettings] = useState(false);
+            const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
 
-            const [currentProjectId, setCurrentProjectId] = useState(projects[0].id);
-
-            // 데이터 변경 시 로컬 스토리지 저장
+            // (1) 인증 처리
             useEffect(() => {
-                localStorage.setItem('ai_projects_data', JSON.stringify(projects));
-            }, [projects]);
+                const initAuth = async () => {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await auth.signInWithCustomToken(__initial_auth_token);
+                    } else {
+                        await auth.signInAnonymously();
+                    }
+                };
+                initAuth();
+                const unsubscribe = auth.onAuthStateChanged(setUser);
+                return () => unsubscribe();
+            }, []);
 
-            const currentProject = projects.find(p => p.id === currentProjectId) || projects[0];
+            // (2) 실시간 데이터 리스너 (Cloud Sync)
+            useEffect(() => {
+                if (!user) return;
+                const projectCol = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('projects');
+                
+                const unsubscribe = projectCol.onSnapshot((snapshot) => {
+                    const projs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    if (projs.length === 0 && view === 'dashboard') {
+                        // 기본 프로젝트 생성
+                        createProject("My First Workspace");
+                    }
+                    setProjects(projs);
+                }, (error) => console.error("Firestore Error:", error));
 
-            // 새 프로젝트 추가
-            const addNewProject = () => {
+                return () => unsubscribe();
+            }, [user]);
+
+            // 프로젝트 생성
+            const createProject = async (title = "New Project") => {
+                if (!user) return;
                 const newProj = {
-                    id: 'p-' + Date.now(),
-                    title: `새 프로젝트 ${projects.length + 1}`,
-                    description: '새로운 아이디어를 시작해보세요.',
+                    title,
+                    description: "나의 작업 공간",
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     nodes: [
-                        { id: 'n-' + Date.now(), type: 'Memo', x: 100, y: 100, content: '새로운 메모를 작성하세요.', status: 'personal' }
+                        { id: 'n1', type: 'Input', x: 50, y: 100, content: '질문을 입력하세요.', status: 'ready' },
+                        { id: 'n2', type: 'Output', x: 400, y: 100, content: '결과 창', status: 'idle' }
                     ]
                 };
-                setProjects([...projects, newProj]);
+                await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('projects').add(newProj);
             };
 
-            // 노드(메모/입력/출력) 추가
+            // 노드 업데이트 (Cloud)
+            const updateNodes = async (pId, newNodes) => {
+                if (!user) return;
+                await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('projects').doc(pId).update({
+                    nodes: newNodes
+                });
+            };
+
             const addNode = (type) => {
+                const project = projects.find(p => p.id === currentProjectId);
                 const newNode = {
                     id: 'node-' + Date.now(),
                     type,
-                    x: Math.random() * 200 + 50,
-                    y: Math.random() * 200 + 50,
-                    content: type === 'Memo' ? '새로운 메모 내용...' : '',
-                    status: type === 'Memo' ? 'personal' : 'ready'
+                    x: 100 + (Math.random() * 50),
+                    y: 150 + (Math.random() * 50),
+                    content: '',
+                    status: 'active'
                 };
-                updateProjectNodes(currentProjectId, [...currentProject.nodes, newNode]);
+                updateNodes(currentProjectId, [...project.nodes, newNode]);
             };
 
-            const deleteNode = (nodeId) => {
-                updateProjectNodes(currentProjectId, currentProject.nodes.filter(n => n.id !== nodeId));
-            };
-
-            const updateProjectNodes = (pId, newNodes) => {
-                setProjects(projects.map(p => p.id === pId ? { ...p, nodes: newNodes } : p));
-            };
-
-            const updateNodeContent = (nId, content) => {
-                const newNodes = currentProject.nodes.map(n => n.id === nId ? { ...n, content } : n);
-                updateProjectNodes(currentProjectId, newNodes);
-            };
-
-            const runGemini = async (inputNodeId) => {
+            const runGemini = async (pId, nodeId) => {
                 if (!apiKey) { setShowApiSettings(true); return; }
-                const inputNode = currentProject.nodes.find(n => n.id === inputNodeId);
+                const project = projects.find(p => p.id === pId);
+                const inputNode = project.nodes.find(n => n.id === nodeId);
                 setIsAiLoading(true);
                 
                 try {
@@ -120,39 +138,36 @@
                         body: JSON.stringify({ contents: [{ parts: [{ text: inputNode.content }] }] })
                     });
                     const data = await res.json();
-                    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || "에러가 발생했습니다.";
+                    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || "에러 발생";
                     
-                    // 첫 번째 Output 노드를 찾아 결과 업데이트
-                    let outputFound = false;
-                    const newNodes = currentProject.nodes.map(n => {
-                        if (n.type === 'Output' && !outputFound) {
-                            outputFound = true;
-                            return { ...n, content: resultText, status: 'completed' };
-                        }
-                        return n;
-                    });
-                    updateProjectNodes(currentProjectId, newNodes);
+                    const newNodes = project.nodes.map(n => 
+                        n.type === 'Output' ? { ...n, content: resultText } : n
+                    );
+                    updateNodes(pId, newNodes);
                 } catch (e) {
-                    alert("연결 실패: " + e.message);
+                    console.error(e);
                 } finally {
                     setIsAiLoading(false);
                 }
             };
 
+            const currentProject = projects.find(p => p.id === currentProjectId);
+
+            if (!user) return <div className="h-screen flex items-center justify-center font-bold text-slate-400">Loading Cloud...</div>;
+
             return (
-                <div className="h-screen w-full flex flex-col select-none">
+                <div className="h-screen w-full flex flex-col overflow-hidden">
                     {/* Header */}
-                    <header className="bg-white border-b px-8 py-4 flex justify-between items-center z-50 shadow-sm">
-                        <div className="flex items-center gap-4 cursor-pointer" onClick={() => setView('dashboard')}>
-                            <div className="bg-indigo-600 p-2 rounded-xl text-white">
+                    <header className="bg-white border-b px-8 py-4 flex justify-between items-center z-50">
+                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView('dashboard')}>
+                            <div className="bg-indigo-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-100">
                                 <Icon name="Zap" />
                             </div>
-                            <h1 className="text-xl font-black text-slate-800 tracking-tighter">MY AI SPACE</h1>
+                            <h1 className="text-xl font-black text-slate-800 tracking-tighter">AI CLOUD</h1>
                         </div>
-                        <div className="flex items-center gap-3">
-                            <button onClick={() => setShowApiSettings(true)} className="flex items-center gap-2 px-4 py-2 hover:bg-slate-100 rounded-xl text-slate-500 font-bold text-sm transition-all">
-                                <Icon name="Settings" size={16} /> API Key
-                            </button>
+                        <div className="flex items-center gap-4 text-xs font-bold text-slate-400">
+                            <span className="bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full uppercase">User: {user.uid.substring(0,6)}</span>
+                            <button onClick={() => setShowApiSettings(true)} className="p-2 hover:bg-slate-100 rounded-lg transition-colors"><Icon name="Settings" size={18} /></button>
                         </div>
                     </header>
 
@@ -160,33 +175,17 @@
                         <div className="flex-1 p-10 bg-slate-50 overflow-auto">
                             <div className="max-w-6xl mx-auto">
                                 <div className="flex justify-between items-end mb-10">
-                                    <div>
-                                        <h2 className="text-4xl font-black text-slate-900 mb-2">Projects Hub</h2>
-                                        <p className="text-slate-400 font-medium">관리중인 모든 작업 공간</p>
-                                    </div>
-                                    <button 
-                                        onClick={addNewProject}
-                                        className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all"
-                                    >
-                                        <Icon name="Plus" color="white" /> New Project
+                                    <h2 className="text-4xl font-black text-slate-900">Spaces</h2>
+                                    <button onClick={() => createProject()} className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100">
+                                        <Icon name="Plus" /> New Space
                                     </button>
                                 </div>
-                                
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     {projects.map(p => (
-                                        <div 
-                                            key={p.id} 
-                                            onClick={() => { setCurrentProjectId(p.id); setView('canvas'); }} 
-                                            className="group bg-white p-8 rounded-[2.5rem] shadow-sm border-2 border-transparent hover:border-indigo-500 cursor-pointer transition-all flex flex-col h-64 relative overflow-hidden"
-                                        >
-                                            <div className="bg-slate-50 w-14 h-14 rounded-2xl flex items-center justify-center text-slate-400 mb-6 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
-                                                <Icon name="Folder" />
-                                            </div>
+                                        <div key={p.id} onClick={() => { setCurrentProjectId(p.id); setView('canvas'); }} className="bg-white p-8 rounded-[2.5rem] shadow-sm border-2 border-transparent hover:border-indigo-600 cursor-pointer transition-all h-60 flex flex-col">
+                                            <div className="bg-slate-50 w-12 h-12 rounded-2xl flex items-center justify-center text-slate-400 mb-6"><Icon name="Folder" /></div>
                                             <h3 className="font-bold text-xl text-slate-800 mb-2">{p.title}</h3>
-                                            <p className="text-slate-400 text-sm line-clamp-2">{p.description}</p>
-                                            <div className="absolute bottom-6 right-8 text-[10px] font-bold text-slate-300 uppercase">
-                                                Nodes: {p.nodes.length}
-                                            </div>
+                                            <p className="text-slate-400 text-sm flex-1">{p.description}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -194,95 +193,71 @@
                         </div>
                     ) : (
                         <div className="flex-1 flex overflow-hidden">
-                            {/* Toolbar Sidebar */}
-                            <aside className="w-20 bg-white border-r flex flex-col items-center py-8 gap-8 z-40 shadow-sm">
-                                <button onClick={() => setView('dashboard')} className="p-3 text-slate-300 hover:text-indigo-600 transition-colors" title="메인으로">
+                            {/* Toolbar */}
+                            <aside className="w-20 bg-white border-r flex flex-col items-center py-8 gap-6 z-40">
+                                <button onClick={() => setView('dashboard')} className="p-3 text-slate-300 hover:text-indigo-600">
                                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
                                 </button>
                                 <div className="h-[1px] w-8 bg-slate-100"></div>
-                                <button onClick={() => addNode('Input')} className="p-4 bg-slate-50 rounded-2xl text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 transition-all" title="AI 입력창 추가">
+                                <button onClick={() => addNode('Input')} className="p-4 bg-slate-50 rounded-2xl text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 transition-all shadow-sm">
                                     <Icon name="Zap" size={24} />
                                 </button>
-                                <button onClick={() => addNode('Memo')} className="p-4 bg-slate-50 rounded-2xl text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-all" title="개인 메모 추가">
+                                <button onClick={() => addNode('Memo')} className="p-4 bg-slate-50 rounded-2xl text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-all shadow-sm">
                                     <Icon name="StickyNote" size={24} />
                                 </button>
                             </aside>
 
-                            {/* Canvas Main */}
-                            <main className="flex-1 relative bg-slate-100/50 overflow-hidden">
+                            {/* Canvas */}
+                            <main className="flex-1 relative bg-slate-100/50">
                                 <div className="absolute inset-0 grid-bg"></div>
-                                
-                                {/* Header in Canvas */}
-                                <div className="absolute top-6 left-8 z-10 flex items-center gap-4">
-                                    <h2 className="text-2xl font-black text-slate-800">{currentProject.title}</h2>
-                                    <span className="px-3 py-1 bg-white rounded-full text-[10px] font-bold text-slate-400 border uppercase shadow-sm">
-                                        {isAiLoading ? 'AI Processing...' : 'Ready'}
-                                    </span>
+                                <div className="absolute top-6 left-8 z-10 flex items-center gap-3">
+                                    <h2 className="text-2xl font-black text-slate-800">{currentProject?.title}</h2>
+                                    {isAiLoading && <div className="w-2 h-2 bg-indigo-500 rounded-full animate-ping"></div>}
                                 </div>
 
-                                {/* Nodes Area */}
-                                <div className="absolute inset-0">
-                                    {currentProject.nodes.map(node => (
-                                        <div 
-                                            key={node.id} 
-                                            className="absolute w-72 glass-card rounded-[2rem] p-6 shadow-sm node-glow group cursor-default"
-                                            style={{left: node.x, top: node.y, zIndex: node.type === 'Memo' ? 10 : 20}}
-                                        >
-                                            <div className="flex justify-between items-center mb-4">
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`w-2 h-2 rounded-full ${node.type === 'Memo' ? 'bg-emerald-400' : 'bg-indigo-500'}`}></span>
-                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{node.type}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    {node.type === 'Input' && (
-                                                        <button onClick={() => runGemini(node.id)} className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
-                                                            <Icon name="Play" size={12} />
-                                                        </button>
-                                                    )}
-                                                    <button onClick={() => deleteNode(node.id)} className="p-1.5 bg-slate-100 text-slate-400 rounded-lg hover:bg-red-50 hover:text-red-500">
-                                                        <Icon name="Trash" size={12} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            
-                                            <textarea 
-                                                className={`w-full h-32 bg-transparent text-[13px] font-medium text-slate-700 outline-none resize-none border-none p-0 placeholder:text-slate-300 leading-relaxed`}
-                                                placeholder={node.type === 'Memo' ? "메모를 적으세요..." : "내용을 입력하세요..."}
-                                                value={node.content}
-                                                onChange={(e) => updateNodeContent(node.id, e.target.value)}
-                                            />
-
-                                            {/* 드래그 핸들 (단순 시연용 - 실제 드래그는 라이브러리 없이 구현 시 복잡하므로 위치 고정 및 상태 유지) */}
-                                            <div className="absolute -bottom-2 -right-2 w-6 h-6 bg-white border rounded-full flex items-center justify-center text-slate-300 cursor-move shadow-sm">
-                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="9" cy="9" r="1"></circle><circle cx="15" cy="9" r="1"></circle><circle cx="9" cy="15" r="1"></circle><circle cx="15" cy="15" r="1"></circle></svg>
+                                {currentProject?.nodes.map(node => (
+                                    <div key={node.id} className="absolute w-72 glass-card rounded-[2.5rem] p-6 shadow-sm node-glow group" style={{left: node.x, top: node.y}}>
+                                        <div className="flex justify-between items-center mb-4">
+                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{node.type}</span>
+                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {node.type === 'Input' && (
+                                                    <button onClick={() => runGemini(currentProjectId, node.id)} className="p-1.5 bg-indigo-600 text-white rounded-lg"><Icon name="Play" size={10} /></button>
+                                                )}
+                                                <button 
+                                                    onClick={() => updateNodes(currentProjectId, currentProject.nodes.filter(n => n.id !== node.id))}
+                                                    className="p-1.5 bg-slate-100 text-slate-400 rounded-lg hover:text-red-500"
+                                                ><Icon name="Trash" size={10} /></button>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
+                                        <textarea 
+                                            className="w-full h-32 bg-transparent text-[13px] font-medium text-slate-700 outline-none resize-none border-none p-0 leading-relaxed"
+                                            value={node.content}
+                                            placeholder="내용을 입력하세요..."
+                                            onChange={(e) => {
+                                                const newNodes = currentProject.nodes.map(n => n.id === node.id ? { ...n, content: e.target.value } : n);
+                                                updateNodes(currentProjectId, newNodes);
+                                            }}
+                                        />
+                                    </div>
+                                ))}
                             </main>
                         </div>
                     )}
 
-                    {/* API Settings Modal */}
+                    {/* API Key Modal */}
                     {showApiSettings && (
-                        <div className="fixed inset-0 bg-slate-900/60 z-[100] flex items-center justify-center backdrop-blur-sm p-4">
+                        <div className="fixed inset-0 bg-slate-900/60 z-[100] flex items-center justify-center backdrop-blur-sm">
                             <div className="bg-white rounded-[3rem] p-10 w-full max-w-md shadow-2xl">
-                                <div className="flex items-center gap-3 mb-6">
-                                    <div className="bg-indigo-100 p-2 rounded-xl text-indigo-600"><Icon name="Settings" /></div>
-                                    <h2 className="text-2xl font-black text-slate-800">API 설정</h2>
-                                </div>
-                                <p className="text-sm text-slate-400 mb-6 font-medium leading-relaxed">Gemini API 키를 입력하면 AI 기능을 사용할 수 있습니다. 키는 브라우저에만 저장됩니다.</p>
+                                <h2 className="text-2xl font-black text-slate-800 mb-6">Cloud Settings</h2>
+                                <p className="text-sm text-slate-400 mb-4 font-medium">Gemini API Key는 기기별로 설정해야 합니다.</p>
                                 <input 
                                     type="password"
-                                    className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] mb-8 outline-none focus:border-indigo-500 transition-all font-mono text-sm"
-                                    placeholder="Enter your API Key"
+                                    className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] mb-8 outline-none focus:border-indigo-500 font-mono text-sm"
+                                    placeholder="Enter Gemini API Key"
                                     value={apiKey}
                                     onChange={(e) => { setApiKey(e.target.value); localStorage.setItem('gemini_api_key', e.target.value); }}
                                 />
-                                <div className="flex gap-3">
-                                    <button onClick={() => setShowApiSettings(false)} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-colors">닫기</button>
-                                    <button onClick={() => setShowApiSettings(false)} className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all">저장</button>
-                                </div>
+                                <button onClick={() => setShowApiSettings(false)} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold hover:bg-indigo-700 shadow-xl shadow-indigo-100">Save & Close</button>
                             </div>
                         </div>
                     )}
