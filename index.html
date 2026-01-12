@@ -1,374 +1,419 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Network Workspace</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+import React, { useState, useEffect, useCallback } from 'react';
+import { 
+  Plus, 
+  Play, 
+  Link as LinkIcon, 
+  Trash2, 
+  LayoutDashboard, 
+  MousePointer2,
+  FileText,
+  Zap
+} from 'lucide-react';
+
+const App = () => {
+  const [view, setView] = useState('dashboard');
+  const [projects, setProjects] = useState([]);
+  const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [connectionSource, setConnectionSource] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newProjectTitle, setNewProjectTitle] = useState('');
+
+  // AI 호출 함수 (내부 API 사용)
+  const callAiApi = async (prompt) => {
+    const apiKey = ""; // 환경에서 자동 주입됨
+    const systemPrompt = "너는 지능형 작업 보조 도구이다. 사용자의 지시사항에 대해 명확하고 구조적인 답변을 제공하라. 답변은 텍스트 위주로 하되 필요시 코드 스니펫을 포함하라.";
     
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] }
+        })
+      });
+      
+      const result = await response.json();
+      return result.candidates?.[0]?.content?.parts?.[0]?.text || "답변을 생성할 수 없습니다.";
+    } catch (error) {
+      console.error("AI Error:", error);
+      return "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+    }
+  };
 
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
-        body { font-family: 'Pretendard', sans-serif; margin: 0; padding: 0; background-color: #f8fafc; overflow: hidden; }
-        .canvas-container { position: relative; width: 100%; height: calc(100vh - 64px); overflow: auto; cursor: grab; outline: none; }
-        .canvas-container:active { cursor: grabbing; }
-        .node-card { position: absolute; width: 300px; z-index: 10; transition: box-shadow 0.2s, transform 0.1s; cursor: default; }
-        .connector-svg { position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; pointer-events: none; z-index: 1; }
-        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); }
-        .dot-pattern { background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 40px 40px; }
-        .node-input { border: none; outline: none; background: transparent; width: 100%; resize: none; font-size: 14px; line-height: 1.6; height: 120px; }
-        
-        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        .animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
-        
-        .connection-active { ring: 4px; ring-color: #fbbf24; animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(251, 191, 36, 0); } 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); } }
-    </style>
-</head>
-<body>
-    <div id="root"></div>
+  const handleCreateProject = () => {
+    if (!newProjectTitle.trim()) return;
+    const newProject = {
+      id: Date.now().toString(),
+      title: newProjectTitle,
+      nodes: [
+        { id: 'n1', content: '여기에 첫 번째 메모를 남기거나 작업을 지시해보세요.', x: 100, y: 150, type: 'memo' }
+      ],
+      connections: []
+    };
+    setProjects([...projects, newProject]);
+    setCurrentProjectId(newProject.id);
+    setView('canvas');
+    setIsModalOpen(false);
+    setNewProjectTitle('');
+  };
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+  const currentProject = projects.find(p => p.id === currentProjectId);
 
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'ai-manual-connect-v1';
-        const apiKey = ""; 
+  const addNode = (type = 'memo') => {
+    if (!currentProject) return;
+    const newNode = {
+      id: `node-${Date.now()}`,
+      content: '',
+      x: 100 + Math.random() * 50,
+      y: 100 + Math.random() * 50,
+      type: type
+    };
+    
+    const updatedProjects = projects.map(p => 
+      p.id === currentProjectId ? { ...p, nodes: [...p.nodes, newNode] } : p
+    );
+    setProjects(updatedProjects);
+  };
 
-        let db = null;
-        let auth = null;
-        if (firebaseConfig) {
-            if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-            db = firebase.firestore();
-            auth = firebase.auth();
-        }
+  const updateNodeContent = (nodeId, content) => {
+    const updatedProjects = projects.map(p => 
+      p.id === currentProjectId ? {
+        ...p,
+        nodes: p.nodes.map(n => n.id === nodeId ? { ...n, content } : n)
+      } : p
+    );
+    setProjects(updatedProjects);
+  };
 
-        const App = () => {
-            const [user, setUser] = useState(null);
-            const [view, setView] = useState('dashboard');
-            const [projects, setProjects] = useState([]);
-            const [currentProjectId, setCurrentProjectId] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [isAiProcessing, setIsAiProcessing] = useState(false);
-            
-            // 연결 모드 상태
-            const [connectionSource, setConnectionSource] = useState(null);
-            
-            const [isModalOpen, setIsModalOpen] = useState(false);
-            const [newProjectTitle, setNewProjectTitle] = useState('');
+  const moveNode = (nodeId, x, y) => {
+    const updatedProjects = projects.map(p => 
+      p.id === currentProjectId ? {
+        ...p,
+        nodes: p.nodes.map(n => n.id === nodeId ? { ...n, x, y } : n)
+      } : p
+    );
+    setProjects(updatedProjects);
+  };
 
-            useEffect(() => {
-                if (!auth) { setLoading(false); return; }
-                const initAuth = async () => {
-                    try {
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await auth.signInWithCustomToken(__initial_auth_token);
-                        } else {
-                            await auth.signInAnonymously();
-                        }
-                    } catch (e) { console.warn("Auth failed", e); }
-                };
-                initAuth();
-                const unsubscribe = auth.onAuthStateChanged(u => { setUser(u); setLoading(false); });
-                return () => unsubscribe();
-            }, []);
+  const toggleConnection = (targetId) => {
+    if (!connectionSource) {
+      setConnectionSource(targetId);
+      return;
+    }
+    if (connectionSource === targetId) {
+      setConnectionSource(null);
+      return;
+    }
 
-            useEffect(() => {
-                if (!user || !db) return;
-                const path = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('projects');
-                const unsubscribe = path.onSnapshot(ss => {
-                    const data = ss.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setProjects(data);
-                });
-                return () => unsubscribe();
-            }, [user]);
+    const exists = currentProject.connections?.find(
+      c => c.from === connectionSource && c.to === targetId
+    );
 
-            const handleCreateProject = async () => {
-                if (!newProjectTitle.trim()) return;
-                const newProjectData = {
-                    title: newProjectTitle,
-                    createdAt: new Date().toISOString(),
-                    nodes: [{ id: 'n1', content: '블록을 생성하고 🔗 아이콘을 눌러 연결해보세요.', x: 100, y: 150, type: 'memo' }],
-                    connections: [] // 연결 정보 저장
-                };
-                setIsModalOpen(false);
-                setNewProjectTitle('');
-                if (user && db) {
-                    const docRef = await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('projects').add(newProjectData);
-                    setCurrentProjectId(docRef.id);
-                } else {
-                    const localId = 'local-' + Date.now();
-                    setProjects(prev => [...prev, { id: localId, ...newProjectData }]);
-                    setCurrentProjectId(localId);
-                }
-                setView('canvas');
-            };
+    let newConnections;
+    if (exists) {
+      newConnections = currentProject.connections.filter(
+        c => !(c.from === connectionSource && c.to === targetId)
+      );
+    } else {
+      newConnections = [...(currentProject.connections || []), { from: connectionSource, to: targetId }];
+    }
 
-            const addNode = (pId, type = 'memo') => {
-                const proj = projects.find(p => p.id === pId);
-                if (!proj) return;
-                const newNode = {
-                    id: 'node-' + Date.now(),
-                    content: '',
-                    x: Math.random() * 200 + 100,
-                    y: Math.random() * 200 + 100,
-                    type: type
-                };
-                updateProjectInStore(pId, { nodes: [...proj.nodes, newNode] });
-            };
+    const updatedProjects = projects.map(p => 
+      p.id === currentProjectId ? { ...p, connections: newConnections } : p
+    );
+    setProjects(updatedProjects);
+    setConnectionSource(null);
+  };
 
-            const startConnection = (nodeId) => {
-                setConnectionSource(nodeId);
-            };
+  const handleExecuteTask = async (nodeId) => {
+    const node = currentProject.nodes.find(n => n.id === nodeId);
+    if (!node || !node.content.trim()) return;
 
-            const completeConnection = (targetId) => {
-                if (!connectionSource || connectionSource === targetId) {
-                    setConnectionSource(null);
-                    return;
-                }
-                const proj = projects.find(p => p.id === currentProjectId);
-                const exists = proj.connections?.find(c => c.from === connectionSource && c.to === targetId);
-                
-                if (exists) {
-                    // 이미 있으면 연결 해제
-                    const newConns = proj.connections.filter(c => !(c.from === connectionSource && c.to === targetId));
-                    updateProjectInStore(currentProjectId, { connections: newConns });
-                } else {
-                    // 새로 연결
-                    const newConn = { from: connectionSource, to: targetId };
-                    updateProjectInStore(currentProjectId, { connections: [...(proj.connections || []), newConn] });
-                }
-                setConnectionSource(null);
-            };
+    setIsAiProcessing(true);
+    const resultText = await callAiApi(node.content);
+    
+    const newNode = {
+      id: `ai-${Date.now()}`,
+      content: resultText,
+      x: node.x + 350,
+      y: node.y,
+      type: 'ai'
+    };
 
-            const askAi = async (pId, nodeId) => {
-                const proj = projects.find(p => p.id === pId);
-                const node = proj.nodes.find(n => n.id === nodeId);
-                if (!node || !node.content.trim()) return;
+    const updatedProjects = projects.map(p => 
+      p.id === currentProjectId ? {
+        ...p,
+        nodes: [...p.nodes, newNode],
+        connections: [...(p.connections || []), { from: nodeId, to: newNode.id }]
+      } : p
+    );
+    setProjects(updatedProjects);
+    setIsAiProcessing(false);
+  };
 
-                setIsAiProcessing(true);
-                try {
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                        method: 'POST',
-                        body: JSON.stringify({ contents: [{ parts: [{ text: node.content }] }] })
-                    });
-                    const result = await response.json();
-                    const aiText = result.candidates?.[0]?.content?.parts?.[0]?.text || "AI 응답 오류";
+  const deleteNode = (nodeId) => {
+    const updatedProjects = projects.map(p => 
+      p.id === currentProjectId ? {
+        ...p,
+        nodes: p.nodes.filter(n => n.id !== nodeId),
+        connections: (p.connections || []).filter(c => c.from !== nodeId && c.to !== nodeId)
+      } : p
+    );
+    setProjects(updatedProjects);
+  };
 
-                    const newNode = {
-                        id: 'ai-' + Date.now(),
-                        content: aiText,
-                        x: node.x + 350,
-                        y: node.y,
-                        type: 'ai'
-                    };
-                    const newConn = { from: nodeId, to: newNode.id };
-                    updateProjectInStore(pId, { 
-                        nodes: [...proj.nodes, newNode],
-                        connections: [...(proj.connections || []), newConn]
-                    });
-                } catch (e) {
-                    alert("AI 연결 오류");
-                } finally { setIsAiProcessing(false); }
-            };
+  return (
+    <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-sans">
+      {/* Header */}
+      <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between z-50 shadow-sm">
+        <div className="flex items-center gap-4">
+          <div 
+            className="flex items-center gap-2 cursor-pointer group"
+            onClick={() => setView('dashboard')}
+          >
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg group-hover:rotate-12 transition-transform">
+              <Zap size={20} fill="currentColor" />
+            </div>
+            <span className="font-black text-xl tracking-tighter text-slate-800">FLOW_WORK</span>
+          </div>
+          {view === 'canvas' && (
+            <div className="flex items-center gap-2 ml-4 px-3 py-1 bg-slate-100 rounded-full">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Project:</span>
+              <span className="text-sm font-bold text-slate-700">{currentProject?.title}</span>
+            </div>
+          )}
+        </div>
 
-            const updateProjectInStore = async (pId, updates) => {
-                if (user && db && !String(pId).includes('local')) {
-                    await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('projects').doc(pId).update(updates);
-                } else {
-                    setProjects(prev => prev.map(p => p.id === pId ? { ...p, ...updates } : p));
-                }
-            };
-
-            const handleNodeDrag = (nodeId, e) => {
-                // 단순 구현: 마우스 이동에 따라 노드 위치 업데이트
-                // (더 정교한 드래그 라이브러리가 필요할 수 있으나 기본 기능 위주로 구현)
-            };
-
-            if (loading) return <div className="h-screen flex items-center justify-center font-bold text-indigo-600 animate-pulse text-xl">NETWORK_LOADING...</div>;
-
-            const currentProject = projects.find(p => p.id === currentProjectId);
-
-            return (
-                <div className="h-screen w-full flex flex-col overflow-hidden">
-                    {/* 프로젝트 생성 모달 (생략/유지) */}
-                    {isModalOpen && (
-                        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-                            <div className="bg-white rounded-[2rem] p-10 w-full max-w-md shadow-2xl animate-fade-in">
-                                <h2 className="text-3xl font-black text-slate-800 mb-6">새 워크스페이스</h2>
-                                <input 
-                                    autoFocus
-                                    className="w-full bg-slate-50 border-2 border-slate-100 p-5 rounded-2xl mb-6 outline-none focus:border-indigo-500 font-bold"
-                                    placeholder="프로젝트 제목"
-                                    value={newProjectTitle}
-                                    onChange={(e) => setNewProjectTitle(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
-                                />
-                                <div className="flex gap-3">
-                                    <button onClick={() => setIsModalOpen(false)} className="flex-1 py-4 font-bold text-slate-400">취소</button>
-                                    <button onClick={handleCreateProject} className="flex-1 py-4 font-bold bg-indigo-600 text-white rounded-2xl">생성</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <header className="h-16 bg-white border-b px-6 flex items-center justify-between shadow-sm z-50">
-                        <div className="flex items-center gap-4">
-                            <button onClick={() => setView('dashboard')} className="flex items-center gap-2 group">
-                                <div className="w-9 h-9 bg-slate-900 rounded-xl flex items-center justify-center text-white font-black text-xs">AI</div>
-                                <span className="font-black text-slate-800 text-xl tracking-tighter uppercase">Canvas</span>
-                            </button>
-                            {view === 'canvas' && (
-                                <div className="flex items-center gap-2 ml-4">
-                                    <span className="text-slate-300 font-bold">/</span>
-                                    <input 
-                                        className="bg-transparent font-bold text-slate-600 outline-none focus:bg-slate-50 px-2 py-1 rounded"
-                                        value={currentProject?.title}
-                                        onChange={(e) => updateProjectInStore(currentProjectId, { title: e.target.value })}
-                                    />
-                                </div>
-                            )}
-                        </div>
-                        <div className="flex items-center gap-3">
-                            {view === 'canvas' && (
-                                <>
-                                    {connectionSource && (
-                                        <div className="mr-4 px-4 py-2 bg-amber-50 text-amber-600 rounded-xl text-xs font-black animate-pulse border border-amber-200 uppercase tracking-widest">
-                                            연결할 블록을 선택하세요...
-                                        </div>
-                                    )}
-                                    <button onClick={() => addNode(currentProjectId, 'memo')} className="bg-slate-100 text-slate-600 px-5 py-2.5 rounded-xl text-sm font-bold border border-slate-200 hover:bg-white transition-all">
-                                        + 메모 블록
-                                    </button>
-                                    <button onClick={() => addNode(currentProjectId, 'task')} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
-                                        + 작업 지시
-                                    </button>
-                                </>
-                            )}
-                        </div>
-                    </header>
-
-                    {view === 'dashboard' ? (
-                        <main className="flex-1 p-12 overflow-y-auto bg-slate-50/50">
-                            <div className="max-w-6xl mx-auto">
-                                <div className="flex justify-between items-center mb-12">
-                                    <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Workspace</h2>
-                                    <button onClick={() => setIsModalOpen(true)} className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold shadow-xl shadow-indigo-100">새 프로젝트 생성</button>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                                    {projects.map(p => (
-                                        <div key={p.id} onClick={() => { setCurrentProjectId(p.id); setView('canvas'); }} 
-                                             className="bg-white p-8 rounded-[2.5rem] shadow-sm hover:shadow-xl transition-all cursor-pointer border border-slate-100 flex flex-col h-64">
-                                            <h3 className="text-xl font-black text-slate-800 mb-auto">{p.title}</h3>
-                                            <div className="text-xs font-bold text-slate-400">연결된 블록: {p.nodes?.length || 0}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </main>
-                    ) : (
-                        <main className="flex-1 canvas-container dot-pattern" onClick={() => setConnectionSource(null)}>
-                            {/* 연결선 렌더링 */}
-                            <svg className="connector-svg">
-                                <defs>
-                                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                                        <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
-                                    </marker>
-                                </defs>
-                                {currentProject?.connections?.map((conn, idx) => {
-                                    const fromNode = currentProject.nodes.find(n => n.id === conn.from);
-                                    const toNode = currentProject.nodes.find(n => n.id === conn.to);
-                                    if (!fromNode || !toNode) return null;
-                                    
-                                    const startX = fromNode.x + 300; // 블록 오른쪽
-                                    const startY = fromNode.y + 100; // 블록 중간
-                                    const endX = toNode.x;           // 블록 왼쪽
-                                    const endY = toNode.y + 100;    // 블록 중간
-                                    
-                                    return (
-                                        <path key={`conn-${idx}`} 
-                                              d={`M ${startX} ${startY} C ${startX + 50} ${startY}, ${endX - 50} ${endY}, ${endX} ${endY}`}
-                                              fill="none" stroke="#94a3b8" strokeWidth="2.5" markerEnd="url(#arrowhead)" />
-                                    );
-                                })}
-                            </svg>
-
-                            {currentProject?.nodes.map(node => (
-                                <div key={node.id} 
-                                     draggable
-                                     onDragEnd={(e) => {
-                                         const rect = e.target.closest('.canvas-container').getBoundingClientRect();
-                                         const x = e.clientX - rect.left - 150;
-                                         const y = e.clientY - rect.top - 20;
-                                         const newNodes = currentProject.nodes.map(n => n.id === node.id ? { ...n, x, y } : n);
-                                         updateProjectInStore(currentProjectId, { nodes: newNodes });
-                                     }}
-                                     onClick={(e) => {
-                                         e.stopPropagation();
-                                         if (connectionSource) completeConnection(node.id);
-                                     }}
-                                     className={`node-card glass rounded-[2rem] p-6 shadow-2xl animate-fade-in border-2 transition-all
-                                     ${connectionSource === node.id ? 'connection-active border-amber-400' : 
-                                       node.type === 'ai' ? 'border-indigo-400' : 
-                                       node.type === 'task' ? 'border-indigo-600' : 'border-white'}`}
-                                     style={{ left: node.x, top: node.y }}>
-                                    
-                                    <div className="flex justify-between items-center mb-4">
-                                        <div className="flex items-center gap-2">
-                                            <div className={`w-2 h-2 rounded-full ${node.type === 'ai' ? 'bg-indigo-400' : node.type === 'task' ? 'bg-indigo-600' : 'bg-slate-300'}`}></div>
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                                {node.type}
-                                            </span>
-                                        </div>
-                                        <div className="flex gap-1">
-                                            {/* 연결 버튼 */}
-                                            <button onClick={(e) => { e.stopPropagation(); startConnection(node.id); }} 
-                                                    className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all ${connectionSource === node.id ? 'bg-amber-400 text-white' : 'bg-slate-50 text-slate-400 hover:text-amber-500'}`}
-                                                    title="연결하기">
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-                                            </button>
-                                            {node.type === 'task' && (
-                                                <button onClick={() => askAi(currentProjectId, node.id)} className="w-7 h-7 flex items-center justify-center bg-indigo-600 text-white rounded-lg hover:scale-105 active:scale-95 transition-all">
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
-                                                </button>
-                                            )}
-                                            <button onClick={() => {
-                                                const updated = currentProject.nodes.filter(n => n.id !== node.id);
-                                                const updatedConns = currentProject.connections?.filter(c => c.from !== node.id && c.to !== node.id);
-                                                updateProjectInStore(currentProjectId, { nodes: updated, connections: updatedConns });
-                                            }} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500">
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"></path></svg>
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <textarea 
-                                        className="node-input font-semibold text-slate-800 placeholder:text-slate-200"
-                                        value={node.content}
-                                        placeholder="내용 입력..."
-                                        onChange={(e) => {
-                                            const val = e.target.value;
-                                            const newNodes = currentProject.nodes.map(n => n.id === node.id ? { ...n, content: val } : n);
-                                            updateProjectInStore(currentProjectId, { nodes: newNodes });
-                                        }}
-                                    />
-                                </div>
-                            ))}
-                        </main>
-                    )}
+        <div className="flex items-center gap-3">
+          {view === 'canvas' && (
+            <>
+              {connectionSource && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-600 border border-amber-200 rounded-xl animate-pulse">
+                  <LinkIcon size={14} />
+                  <span className="text-xs font-black">연결할 대상을 선택하세요</span>
                 </div>
-            );
-        };
+              )}
+              <button 
+                onClick={() => addNode('memo')}
+                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
+              >
+                <FileText size={16} /> 메모 추가
+              </button>
+              <button 
+                onClick={() => addNode('task')}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-indigo-700 transition-all"
+              >
+                <Plus size={16} /> 작업 지시 추가
+              </button>
+            </>
+          )}
+        </div>
+      </header>
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+      {/* Main Content */}
+      <main className="flex-1 relative overflow-hidden">
+        {view === 'dashboard' ? (
+          <div className="p-12 max-w-7xl mx-auto h-full overflow-y-auto">
+            <div className="flex justify-between items-end mb-12">
+              <div>
+                <h1 className="text-5xl font-black text-slate-900 mb-2">My Workspaces</h1>
+                <p className="text-slate-500 font-medium">진행 중인 모든 프로젝트를 한눈에 관리하세요.</p>
+              </div>
+              <button 
+                onClick={() => setIsModalOpen(true)}
+                className="px-8 py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-xl shadow-indigo-100 hover:scale-105 transition-all"
+              >
+                새 프로젝트 시작
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {projects.map(p => (
+                <div 
+                  key={p.id}
+                  onClick={() => { setCurrentProjectId(p.id); setView('canvas'); }}
+                  className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all cursor-pointer group flex flex-col h-64"
+                >
+                  <div className="w-14 h-14 bg-slate-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                    <LayoutDashboard size={24} />
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-800 mb-auto leading-tight">{p.title}</h3>
+                  <div className="flex items-center justify-between mt-4">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{p.nodes.length} Nodes</span>
+                    <div className="p-2 rounded-full bg-slate-50 text-slate-300 group-hover:text-indigo-600 transition-colors">
+                      <MousePointer2 size={18} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {projects.length === 0 && (
+                <div className="col-span-full py-32 text-center">
+                  <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-300">
+                    <Zap size={40} />
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-400">등록된 프로젝트가 없습니다.</h3>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div 
+            className="w-full h-full relative dot-pattern overflow-auto cursor-grab active:cursor-grabbing p-[1000px]"
+            onClick={() => setConnectionSource(null)}
+          >
+            {/* SVG Connections Layer */}
+            <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
+              <defs>
+                <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                  <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+                </marker>
+              </defs>
+              {currentProject?.connections?.map((conn, idx) => {
+                const from = currentProject.nodes.find(n => n.id === conn.from);
+                const to = currentProject.nodes.find(n => n.id === conn.to);
+                if (!from || !to) return null;
+
+                const startX = from.x + 300;
+                const startY = from.y + 100;
+                const endX = to.x;
+                const endY = to.y + 100;
+
+                return (
+                  <path 
+                    key={`line-${idx}`}
+                    d={`M ${startX} ${startY} C ${startX + 60} ${startY}, ${endX - 60} ${endY}, ${endX} ${endY}`}
+                    stroke="#cbd5e1"
+                    strokeWidth="3"
+                    fill="none"
+                    markerEnd="url(#arrow)"
+                    className="animate-fade-in"
+                  />
+                );
+              })}
+            </svg>
+
+            {/* Nodes Layer */}
+            {currentProject?.nodes.map(node => (
+              <div 
+                key={node.id}
+                draggable
+                onDragEnd={(e) => {
+                  const container = e.target.closest('main');
+                  const rect = container.getBoundingClientRect();
+                  moveNode(node.id, e.clientX + container.scrollLeft - rect.left - 150, e.clientY + container.scrollTop - rect.top - 20);
+                }}
+                className={`absolute w-[320px] bg-white rounded-[2rem] p-6 shadow-xl border-2 transition-all animate-fade-in z-10
+                  ${connectionSource === node.id ? 'ring-4 ring-amber-400 border-amber-400 scale-105 shadow-amber-100' : 
+                    node.type === 'ai' ? 'border-indigo-100 bg-indigo-50/30 shadow-indigo-50' : 
+                    node.type === 'task' ? 'border-indigo-600 ring-4 ring-indigo-50' : 'border-white'}
+                `}
+                style={{ left: node.x, top: node.y }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (connectionSource) toggleConnection(node.id);
+                }}
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${node.type === 'ai' ? 'bg-indigo-400' : node.type === 'task' ? 'bg-indigo-600' : 'bg-slate-300'}`} />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      {node.type === 'memo' ? 'Memo' : node.type === 'task' ? 'Instruction' : 'AI Result'}
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setConnectionSource(node.id); }}
+                      className={`p-2 rounded-lg transition-colors ${connectionSource === node.id ? 'bg-amber-400 text-white' : 'bg-slate-50 text-slate-400 hover:text-amber-500'}`}
+                      title="연결 모드"
+                    >
+                      <LinkIcon size={14} />
+                    </button>
+                    {node.type === 'task' && (
+                      <button 
+                        onClick={() => handleExecuteTask(node.id)}
+                        disabled={isAiProcessing}
+                        className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 transition-colors shadow-md"
+                        title="AI 실행"
+                      >
+                        {isAiProcessing ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Play size={14} fill="currentColor" />}
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => deleteNode(node.id)}
+                      className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <textarea 
+                  className="w-full bg-transparent border-none outline-none resize-none h-40 text-sm font-semibold leading-relaxed text-slate-700 placeholder:text-slate-300"
+                  value={node.content}
+                  placeholder={node.type === 'task' ? "AI에게 지시할 내용을 입력하세요..." : "내용을 입력하세요..."}
+                  onChange={(e) => updateNodeContent(node.id, e.target.value)}
+                />
+                
+                {node.type === 'ai' && (
+                  <div className="mt-2 flex justify-end">
+                    <span className="text-[9px] font-black text-indigo-300 italic">GENERATED_BY_AI</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+
+      {/* Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl animate-fade-in border border-slate-100">
+            <h2 className="text-3xl font-black text-slate-800 mb-2 tracking-tight">New Workspace</h2>
+            <p className="text-slate-500 font-medium mb-8">당신의 생각을 자유롭게 연결할 준비가 되셨나요?</p>
+            <input 
+              autoFocus
+              className="w-full bg-slate-50 border-2 border-slate-100 p-5 rounded-2xl mb-6 outline-none focus:border-indigo-600 font-bold transition-all text-slate-700"
+              placeholder="워크스페이스 이름"
+              value={newProjectTitle}
+              onChange={(e) => setNewProjectTitle(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
+            />
+            <div className="flex gap-4">
+              <button 
+                onClick={() => setIsModalOpen(false)} 
+                className="flex-1 py-4 font-bold text-slate-400 hover:bg-slate-50 rounded-2xl transition-all"
+              >
+                취소
+              </button>
+              <button 
+                onClick={handleCreateProject} 
+                className="flex-1 py-4 font-bold bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all"
+              >
+                시작하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        .dot-pattern {
+          background-image: radial-gradient(#e2e8f0 1.5px, transparent 1.5px);
+          background-size: 30px 30px;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.3s ease-out forwards;
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default App;
