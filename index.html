@@ -1,417 +1,281 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
-  Plus, 
-  Play, 
-  Link as LinkIcon, 
-  Trash2, 
-  LayoutDashboard, 
-  MousePointer2,
-  FileText,
-  Zap
+  Plus, Play, Trash2, ChevronLeft, LayoutGrid, 
+  Link2, MousePointer2, MessageSquare, Cpu, X, Zap, 
+  ArrowRight, Save 
 } from 'lucide-react';
 
 const App = () => {
+  // --- 상태 관리 ---
   const [view, setView] = useState('dashboard');
   const [projects, setProjects] = useState([]);
   const [currentProjectId, setCurrentProjectId] = useState(null);
-  const [isAiProcessing, setIsAiProcessing] = useState(false);
-  const [connectionSource, setConnectionSource] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [newProjectTitle, setNewProjectTitle] = useState('');
+  
+  // 프로젝트 생성용 모달 상태
+  const [isCreating, setIsCreating] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
 
-  // AI 호출 함수 (내부 API 사용)
-  const callAiApi = async (prompt) => {
-    const apiKey = ""; // 환경에서 자동 주입됨
-    const systemPrompt = "너는 지능형 작업 보조 도구이다. 사용자의 지시사항에 대해 명확하고 구조적인 답변을 제공하라. 답변은 텍스트 위주로 하되 필요시 코드 스니펫을 포함하라.";
-    
-    try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          systemInstruction: { parts: [{ text: systemPrompt }] }
-        })
-      });
-      
-      const result = await response.json();
-      return result.candidates?.[0]?.content?.parts?.[0]?.text || "답변을 생성할 수 없습니다.";
-    } catch (error) {
-      console.error("AI Error:", error);
-      return "네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
-    }
-  };
-
-  const handleCreateProject = () => {
-    if (!newProjectTitle.trim()) return;
-    const newProject = {
-      id: Date.now().toString(),
-      title: newProjectTitle,
-      nodes: [
-        { id: 'n1', content: '여기에 첫 번째 메모를 남기거나 작업을 지시해보세요.', x: 100, y: 150, type: 'memo' }
-      ],
-      connections: []
-    };
-    setProjects([...projects, newProject]);
-    setCurrentProjectId(newProject.id);
-    setView('canvas');
-    setIsModalOpen(false);
-    setNewProjectTitle('');
-  };
+  // 캔버스 UI 상태
+  const [isDragging, setIsDragging] = useState(false);
+  const [draggedId, setDraggedId] = useState(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [connectSourceId, setConnectSourceId] = useState(null);
 
   const currentProject = projects.find(p => p.id === currentProjectId);
 
-  const addNode = (type = 'memo') => {
-    if (!currentProject) return;
-    const newNode = {
-      id: `node-${Date.now()}`,
-      content: '',
-      x: 100 + Math.random() * 50,
-      y: 100 + Math.random() * 50,
-      type: type
+  // --- 핵심 액션 ---
+  const handleCreateConfirm = () => {
+    if (!newProjectName.trim()) return;
+    
+    const newId = "p_" + Date.now();
+    const newProj = {
+      id: newId,
+      title: newProjectName,
+      nodes: [
+        { id: 'n1', type: 'memo', x: 50, y: 100, content: '기초 데이터 블록입니다.' },
+        { id: 'n2', type: 'ai', x: 400, y: 100, content: '위 데이터를 분석하여 보고서 초안을 작성해줘.' }
+      ],
+      connections: [{ from: 'n1', to: 'n2' }]
     };
     
-    const updatedProjects = projects.map(p => 
-      p.id === currentProjectId ? { ...p, nodes: [...p.nodes, newNode] } : p
-    );
-    setProjects(updatedProjects);
+    setProjects(prev => [...prev, newProj]);
+    setCurrentProjectId(newId);
+    setNewProjectName('');
+    setIsCreating(false);
+    setView('canvas');
   };
 
-  const updateNodeContent = (nodeId, content) => {
-    const updatedProjects = projects.map(p => 
-      p.id === currentProjectId ? {
-        ...p,
-        nodes: p.nodes.map(n => n.id === nodeId ? { ...n, content } : n)
-      } : p
-    );
-    setProjects(updatedProjects);
-  };
-
-  const moveNode = (nodeId, x, y) => {
-    const updatedProjects = projects.map(p => 
-      p.id === currentProjectId ? {
-        ...p,
-        nodes: p.nodes.map(n => n.id === nodeId ? { ...n, x, y } : n)
-      } : p
-    );
-    setProjects(updatedProjects);
-  };
-
-  const toggleConnection = (targetId) => {
-    if (!connectionSource) {
-      setConnectionSource(targetId);
-      return;
-    }
-    if (connectionSource === targetId) {
-      setConnectionSource(null);
-      return;
-    }
-
-    const exists = currentProject.connections?.find(
-      c => c.from === connectionSource && c.to === targetId
-    );
-
-    let newConnections;
-    if (exists) {
-      newConnections = currentProject.connections.filter(
-        c => !(c.from === connectionSource && c.to === targetId)
-      );
-    } else {
-      newConnections = [...(currentProject.connections || []), { from: connectionSource, to: targetId }];
-    }
-
-    const updatedProjects = projects.map(p => 
-      p.id === currentProjectId ? { ...p, connections: newConnections } : p
-    );
-    setProjects(updatedProjects);
-    setConnectionSource(null);
-  };
-
-  const handleExecuteTask = async (nodeId) => {
-    const node = currentProject.nodes.find(n => n.id === nodeId);
-    if (!node || !node.content.trim()) return;
-
-    setIsAiProcessing(true);
-    const resultText = await callAiApi(node.content);
-    
+  const addNode = (type) => {
     const newNode = {
-      id: `ai-${Date.now()}`,
-      content: resultText,
-      x: node.x + 350,
-      y: node.y,
-      type: 'ai'
+      id: 'n_' + Date.now(),
+      type: type,
+      x: 100 + (Math.random() * 50),
+      y: 100 + (Math.random() * 50),
+      content: type === 'ai' ? 'AI 실행 지시사항을 입력하세요.' : '새로운 메모 데이터입니다.'
     };
-
-    const updatedProjects = projects.map(p => 
-      p.id === currentProjectId ? {
-        ...p,
-        nodes: [...p.nodes, newNode],
-        connections: [...(p.connections || []), { from: nodeId, to: newNode.id }]
-      } : p
-    );
-    setProjects(updatedProjects);
-    setIsAiProcessing(false);
+    setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, nodes: [...p.nodes, newNode] } : p));
   };
 
-  const deleteNode = (nodeId) => {
-    const updatedProjects = projects.map(p => 
-      p.id === currentProjectId ? {
-        ...p,
-        nodes: p.nodes.filter(n => n.id !== nodeId),
-        connections: (p.connections || []).filter(c => c.from !== nodeId && c.to !== nodeId)
-      } : p
-    );
-    setProjects(updatedProjects);
+  const handleConnect = (targetId) => {
+    if (!connectSourceId || connectSourceId === targetId) {
+      setConnectSourceId(null);
+      return;
+    }
+    const exists = currentProject.connections.find(c => c.from === connectSourceId && c.to === targetId);
+    let newConns = exists 
+      ? currentProject.connections.filter(c => !(c.from === connectSourceId && c.to === targetId))
+      : [...currentProject.connections, { from: connectSourceId, to: targetId }];
+      
+    setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, connections: newConns } : p));
+    setConnectSourceId(null);
   };
 
-  return (
-    <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-sans">
-      {/* Header */}
-      <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between z-50 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div 
-            className="flex items-center gap-2 cursor-pointer group"
-            onClick={() => setView('dashboard')}
-          >
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg group-hover:rotate-12 transition-transform">
-              <Zap size={20} fill="currentColor" />
-            </div>
-            <span className="font-black text-xl tracking-tighter text-slate-800">FLOW_WORK</span>
+  // --- 드래그 핸들러 ---
+  const onMouseDown = (e, id) => {
+    if (e.target.closest('.no-drag')) return;
+    setIsDragging(true);
+    setDraggedId(id);
+    const node = currentProject.nodes.find(n => n.id === id);
+    setOffset({ x: e.clientX - node.x, y: e.clientY - node.y });
+  };
+
+  const onMouseMove = (e) => {
+    if (!isDragging || !draggedId) return;
+    const newNodes = currentProject.nodes.map(n => 
+      n.id === draggedId ? { ...n, x: e.clientX - offset.x, y: e.clientY - offset.y } : n
+    );
+    setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, nodes: newNodes } : p));
+  };
+
+  const onMouseUp = () => {
+    setIsDragging(false);
+    setDraggedId(null);
+  };
+
+  const getCurvePath = (x1, y1, x2, y2) => {
+    const dx = Math.abs(x2 - x1) * 0.4;
+    return `M ${x1 + 280} ${y1 + 40} C ${x1 + 280 + dx} ${y1 + 40}, ${x2 - dx} ${y2 + 40}, ${x2} ${y2 + 40}`;
+  };
+
+  // --- 대시보드 화면 ---
+  if (view === 'dashboard') {
+    return (
+      <div className="h-screen w-full bg-white flex flex-col items-center justify-center p-6 font-sans">
+        <div className="max-w-md w-full text-center">
+          <div className="mb-12">
+            <h1 className="text-7xl font-black text-slate-900 mb-4 tracking-tighter">FLOW</h1>
+            <p className="text-slate-400 font-bold uppercase tracking-[0.4em] text-[10px]">AI Work-Relation Engine</p>
           </div>
-          {view === 'canvas' && (
-            <div className="flex items-center gap-2 ml-4 px-3 py-1 bg-slate-100 rounded-full">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Project:</span>
-              <span className="text-sm font-bold text-slate-700">{currentProject?.title}</span>
+
+          {!isCreating ? (
+            <button 
+              onClick={() => setIsCreating(true)}
+              className="w-full bg-slate-900 text-white py-8 rounded-[2.5rem] font-black text-2xl shadow-2xl hover:bg-indigo-600 transition-all active:scale-95 flex items-center justify-center gap-4 group"
+            >
+              <Plus size={32} className="group-hover:rotate-90 transition-transform" /> 
+              프로젝트 시작하기
+            </button>
+          ) : (
+            <div className="bg-slate-50 p-8 rounded-[2.5rem] border-2 border-slate-100 animate-in zoom-in-95 duration-200">
+              <input 
+                autoFocus
+                type="text"
+                placeholder="워크플로우 이름..."
+                className="w-full bg-transparent border-b-4 border-slate-200 py-3 text-2xl font-black outline-none focus:border-indigo-500 mb-6 transition-colors"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateConfirm()}
+              />
+              <div className="flex gap-3">
+                <button onClick={() => setIsCreating(false)} className="flex-1 py-4 font-bold text-slate-400 hover:text-slate-600">취소</button>
+                <button onClick={handleCreateConfirm} className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-indigo-100">생성하기</button>
+              </div>
+            </div>
+          )}
+
+          {projects.length > 0 && (
+            <div className="mt-16 text-left">
+              <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-6 ml-2">Recent Workflows</p>
+              <div className="grid grid-cols-1 gap-3 max-h-[250px] overflow-y-auto pr-2">
+                {projects.map(p => (
+                  <div key={p.id} onClick={() => { setCurrentProjectId(p.id); setView('canvas'); }}
+                       className="bg-white border-2 border-slate-50 p-6 rounded-3xl cursor-pointer hover:border-indigo-600 hover:shadow-xl transition-all flex justify-between items-center group">
+                    <h3 className="font-bold text-slate-800 text-lg group-hover:text-indigo-600">{p.title}</h3>
+                    <ArrowRight className="text-slate-200 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
+      </div>
+    );
+  }
 
-        <div className="flex items-center gap-3">
-          {view === 'canvas' && (
-            <>
-              {connectionSource && (
-                <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-600 border border-amber-200 rounded-xl animate-pulse">
-                  <LinkIcon size={14} />
-                  <span className="text-xs font-black">연결할 대상을 선택하세요</span>
-                </div>
-              )}
-              <button 
-                onClick={() => addNode('memo')}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
-              >
-                <FileText size={16} /> 메모 추가
-              </button>
-              <button 
-                onClick={() => addNode('task')}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-indigo-700 transition-all"
-              >
-                <Plus size={16} /> 작업 지시 추가
-              </button>
-            </>
-          )}
+  // --- 캔버스 화면 ---
+  const selectedNode = currentProject?.nodes.find(n => n.id === selectedNodeId);
+
+  return (
+    <div className="h-screen w-full bg-white flex flex-col overflow-hidden select-none" onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
+      <header className="h-20 border-b flex items-center justify-between px-8 bg-white z-20 shrink-0">
+        <div className="flex items-center gap-6">
+          <button onClick={() => setView('dashboard')} className="p-3 hover:bg-slate-50 rounded-2xl text-slate-400 transition-colors">
+            <LayoutGrid size={24} />
+          </button>
+          <h2 className="font-black text-slate-900 text-xl tracking-tight">{currentProject.title}</h2>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={() => addNode('memo')} className="flex items-center gap-2 bg-slate-100 text-slate-700 px-5 py-2.5 rounded-xl font-bold hover:bg-slate-200 transition-all no-drag">
+            <MessageSquare size={18} /> 메모 블록
+          </button>
+          <button onClick={() => addNode('ai')} className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all no-drag">
+            <Cpu size={18} /> AI 지시 블록
+          </button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 relative overflow-hidden">
-        {view === 'dashboard' ? (
-          <div className="p-12 max-w-7xl mx-auto h-full overflow-y-auto">
-            <div className="flex justify-between items-end mb-12">
-              <div>
-                <h1 className="text-5xl font-black text-slate-900 mb-2">My Workspaces</h1>
-                <p className="text-slate-500 font-medium">진행 중인 모든 프로젝트를 한눈에 관리하세요.</p>
-              </div>
-              <button 
-                onClick={() => setIsModalOpen(true)}
-                className="px-8 py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-xl shadow-indigo-100 hover:scale-105 transition-all"
-              >
-                새 프로젝트 시작
-              </button>
-            </div>
+      <div className="flex-1 relative bg-slate-50 overflow-hidden">
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1.5px, transparent 1.5px)', backgroundSize: '30px 30px' }}></div>
+        
+        {/* 연결선 SVG 레이어 */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" />
+            </marker>
+          </defs>
+          {currentProject.connections.map((conn, i) => {
+            const from = currentProject.nodes.find(n => n.id === conn.from);
+            const to = currentProject.nodes.find(n => n.id === conn.to);
+            if (!from || !to) return null;
+            return (
+              <path key={i} d={getCurvePath(from.x, from.y, to.x, to.y)} 
+                    fill="none" stroke="#cbd5e1" strokeWidth="3" markerEnd="url(#arrow)" />
+            );
+          })}
+        </svg>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {projects.map(p => (
-                <div 
-                  key={p.id}
-                  onClick={() => { setCurrentProjectId(p.id); setView('canvas'); }}
-                  className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all cursor-pointer group flex flex-col h-64"
-                >
-                  <div className="w-14 h-14 bg-slate-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                    <LayoutDashboard size={24} />
-                  </div>
-                  <h3 className="text-2xl font-black text-slate-800 mb-auto leading-tight">{p.title}</h3>
-                  <div className="flex items-center justify-between mt-4">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{p.nodes.length} Nodes</span>
-                    <div className="p-2 rounded-full bg-slate-50 text-slate-300 group-hover:text-indigo-600 transition-colors">
-                      <MousePointer2 size={18} />
-                    </div>
-                  </div>
+        {/* 블록 렌더링 */}
+        {currentProject.nodes.map(node => (
+          <div key={node.id} onMouseDown={(e) => onMouseDown(e, node.id)}
+               style={{ left: node.x, top: node.y }}
+               className={`absolute w-72 bg-white rounded-[2rem] shadow-2xl border-2 transition-all cursor-grab active:cursor-grabbing
+               ${connectSourceId === node.id ? 'border-amber-400 ring-4 ring-amber-50' : selectedNodeId === node.id ? 'border-indigo-500' : 'border-transparent'}`}>
+            
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg tracking-wider ${node.type === 'ai' ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-500'}`}>
+                  {node.type === 'ai' ? 'AI INSTRUCTION' : 'DATA MEMO'}
+                </span>
+                <div className="flex gap-1 no-drag">
+                  <button onClick={(e) => { e.stopPropagation(); setConnectSourceId(node.id); }} className={`p-2 rounded-lg transition-colors ${connectSourceId === node.id ? 'bg-amber-100 text-amber-600' : 'hover:bg-slate-50 text-slate-300'}`}>
+                    <Link2 size={16} />
+                  </button>
+                  {connectSourceId && connectSourceId !== node.id && (
+                    <button onClick={(e) => { e.stopPropagation(); handleConnect(node.id); }} className="p-2 bg-amber-500 text-white rounded-lg animate-pulse">
+                      <MousePointer2 size={16} />
+                    </button>
+                  )}
+                  <button onClick={(e) => { e.stopPropagation(); setSelectedNodeId(node.id); }} className="p-2 hover:bg-slate-50 text-slate-300 rounded-lg">
+                    <Zap size={16} />
+                  </button>
                 </div>
-              ))}
-              {projects.length === 0 && (
-                <div className="col-span-full py-32 text-center">
-                  <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-300">
-                    <Zap size={40} />
-                  </div>
-                  <h3 className="text-xl font-bold text-slate-400">등록된 프로젝트가 없습니다.</h3>
-                </div>
-              )}
+              </div>
+              <p className="text-sm text-slate-700 font-bold leading-relaxed line-clamp-3 overflow-hidden h-14">
+                {node.content || <span className="text-slate-200">내용을 입력하세요...</span>}
+              </p>
             </div>
           </div>
-        ) : (
-          <div 
-            className="w-full h-full relative dot-pattern overflow-auto cursor-grab active:cursor-grabbing p-[1000px]"
-            onClick={() => setConnectionSource(null)}
-          >
-            {/* SVG Connections Layer */}
-            <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
-              <defs>
-                <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                  <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
-                </marker>
-              </defs>
-              {currentProject?.connections?.map((conn, idx) => {
-                const from = currentProject.nodes.find(n => n.id === conn.from);
-                const to = currentProject.nodes.find(n => n.id === conn.to);
-                if (!from || !to) return null;
+        ))}
+      </div>
 
-                const startX = from.x + 300;
-                const startY = from.y + 100;
-                const endX = to.x;
-                const endY = to.y + 100;
-
-                return (
-                  <path 
-                    key={`line-${idx}`}
-                    d={`M ${startX} ${startY} C ${startX + 60} ${startY}, ${endX - 60} ${endY}, ${endX} ${endY}`}
-                    stroke="#cbd5e1"
-                    strokeWidth="3"
-                    fill="none"
-                    markerEnd="url(#arrow)"
-                    className="animate-fade-in"
-                  />
-                );
-              })}
-            </svg>
-
-            {/* Nodes Layer */}
-            {currentProject?.nodes.map(node => (
-              <div 
-                key={node.id}
-                draggable
-                onDragEnd={(e) => {
-                  const container = e.target.closest('main');
-                  const rect = container.getBoundingClientRect();
-                  moveNode(node.id, e.clientX + container.scrollLeft - rect.left - 150, e.clientY + container.scrollTop - rect.top - 20);
-                }}
-                className={`absolute w-[320px] bg-white rounded-[2rem] p-6 shadow-xl border-2 transition-all animate-fade-in z-10
-                  ${connectionSource === node.id ? 'ring-4 ring-amber-400 border-amber-400 scale-105 shadow-amber-100' : 
-                    node.type === 'ai' ? 'border-indigo-100 bg-indigo-50/30 shadow-indigo-50' : 
-                    node.type === 'task' ? 'border-indigo-600 ring-4 ring-indigo-50' : 'border-white'}
-                `}
-                style={{ left: node.x, top: node.y }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (connectionSource) toggleConnection(node.id);
-                }}
-              >
-                <div className="flex justify-between items-center mb-4">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${node.type === 'ai' ? 'bg-indigo-400' : node.type === 'task' ? 'bg-indigo-600' : 'bg-slate-300'}`} />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                      {node.type === 'memo' ? 'Memo' : node.type === 'task' ? 'Instruction' : 'AI Result'}
-                    </span>
-                  </div>
-                  <div className="flex gap-1">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setConnectionSource(node.id); }}
-                      className={`p-2 rounded-lg transition-colors ${connectionSource === node.id ? 'bg-amber-400 text-white' : 'bg-slate-50 text-slate-400 hover:text-amber-500'}`}
-                      title="연결 모드"
-                    >
-                      <LinkIcon size={14} />
-                    </button>
-                    {node.type === 'task' && (
-                      <button 
-                        onClick={() => handleExecuteTask(node.id)}
-                        disabled={isAiProcessing}
-                        className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 transition-colors shadow-md"
-                        title="AI 실행"
-                      >
-                        {isAiProcessing ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Play size={14} fill="currentColor" />}
-                      </button>
-                    )}
-                    <button 
-                      onClick={() => deleteNode(node.id)}
-                      className="p-2 text-slate-300 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                <textarea 
-                  className="w-full bg-transparent border-none outline-none resize-none h-40 text-sm font-semibold leading-relaxed text-slate-700 placeholder:text-slate-300"
-                  value={node.content}
-                  placeholder={node.type === 'task' ? "AI에게 지시할 내용을 입력하세요..." : "내용을 입력하세요..."}
-                  onChange={(e) => updateNodeContent(node.id, e.target.value)}
-                />
-                
-                {node.type === 'ai' && (
-                  <div className="mt-2 flex justify-end">
-                    <span className="text-[9px] font-black text-indigo-300 italic">GENERATED_BY_AI</span>
-                  </div>
-                )}
-              </div>
-            ))}
+      {/* 우측 에디터 패널 */}
+      {selectedNode && (
+        <div className="w-[400px] bg-white border-l shadow-2xl z-30 flex flex-col animate-in slide-in-from-right duration-300">
+          <div className="p-8 border-b flex justify-between items-center">
+            <h3 className="font-black text-slate-900 uppercase tracking-tighter text-xl">Block Details</h3>
+            <button onClick={() => setSelectedNodeId(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X /></button>
           </div>
-        )}
-      </main>
-
-      {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl animate-fade-in border border-slate-100">
-            <h2 className="text-3xl font-black text-slate-800 mb-2 tracking-tight">New Workspace</h2>
-            <p className="text-slate-500 font-medium mb-8">당신의 생각을 자유롭게 연결할 준비가 되셨나요?</p>
-            <input 
-              autoFocus
-              className="w-full bg-slate-50 border-2 border-slate-100 p-5 rounded-2xl mb-6 outline-none focus:border-indigo-600 font-bold transition-all text-slate-700"
-              placeholder="워크스페이스 이름"
-              value={newProjectTitle}
-              onChange={(e) => setNewProjectTitle(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
-            />
-            <div className="flex gap-4">
-              <button 
-                onClick={() => setIsModalOpen(false)} 
-                className="flex-1 py-4 font-bold text-slate-400 hover:bg-slate-50 rounded-2xl transition-all"
-              >
-                취소
-              </button>
-              <button 
-                onClick={handleCreateProject} 
-                className="flex-1 py-4 font-bold bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all"
-              >
-                시작하기
-              </button>
+          <div className="flex-1 p-8 overflow-y-auto space-y-10">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Block Content</label>
+                <span className={`px-3 py-1 rounded-full text-[10px] font-black ${selectedNode.type === 'ai' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                  {selectedNode.type.toUpperCase()}
+                </span>
+              </div>
+              <textarea 
+                className="w-full h-80 p-6 bg-slate-50 border-4 border-transparent focus:border-indigo-600 focus:bg-white rounded-[2rem] outline-none transition-all text-base leading-relaxed font-bold text-slate-700"
+                value={selectedNode.content}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const newNodes = currentProject.nodes.map(n => n.id === selectedNode.id ? { ...n, content: val } : n);
+                  setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, nodes: newNodes } : p));
+                }}
+              />
             </div>
+            {selectedNode.type === 'ai' && (
+              <button className="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black text-lg shadow-xl shadow-indigo-100 flex items-center justify-center gap-3 hover:bg-indigo-700 active:scale-95 transition-all group">
+                <Play size={20} fill="currentColor" className="group-hover:scale-110 transition-transform" /> AI 실행 프로세스 가동
+              </button>
+            )}
+          </div>
+          <div className="p-8 bg-slate-50 border-t flex gap-4">
+            <button 
+              onClick={() => {
+                const newNodes = currentProject.nodes.filter(n => n.id !== selectedNode.id);
+                setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, nodes: newNodes } : p));
+                setSelectedNodeId(null);
+              }}
+              className="flex-1 py-4 text-red-400 font-black hover:bg-red-50 rounded-2xl transition-all flex items-center justify-center gap-2 border-2 border-transparent hover:border-red-100"
+            >
+              <Trash2 size={18} /> 삭제
+            </button>
+            <button onClick={() => setSelectedNodeId(null)} className="flex-1 py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg">저장 완료</button>
           </div>
         </div>
       )}
-
-      <style>{`
-        .dot-pattern {
-          background-image: radial-gradient(#e2e8f0 1.5px, transparent 1.5px);
-          background-size: 30px 30px;
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: scale(0.95); }
-          to { opacity: 1; transform: scale(1); }
-        }
-        .animate-fade-in {
-          animation: fadeIn 0.3s ease-out forwards;
-        }
-      `}</style>
     </div>
   );
 };
