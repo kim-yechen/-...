@@ -1,283 +1,304 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Plus, Play, Trash2, ChevronLeft, LayoutGrid, 
-  Link2, MousePointer2, MessageSquare, Cpu, X, Zap, 
-  ArrowRight, Save 
-} from 'lucide-react';
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLOW - AI Workflow Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; overflow: hidden; background-color: #f8fafc; }
+        .canvas-dot { background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 30px 30px; }
+        .node { transition: transform 0.1s ease-out, box-shadow 0.2s ease; z-index: 10; }
+        .node:active { cursor: grabbing; }
+        .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+        #canvas-container { position: relative; width: 100vw; height: calc(100vh - 80px); overflow: hidden; }
+        svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+    </style>
+</head>
+<body>
 
-const App = () => {
-  // --- 상태 관리 ---
-  const [view, setView] = useState('dashboard');
-  const [projects, setProjects] = useState([]);
-  const [currentProjectId, setCurrentProjectId] = useState(null);
-  
-  // 프로젝트 생성용 모달 상태
-  const [isCreating, setIsCreating] = useState(false);
-  const [newProjectName, setNewProjectName] = useState('');
-
-  // 캔버스 UI 상태
-  const [isDragging, setIsDragging] = useState(false);
-  const [draggedId, setDraggedId] = useState(null);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [selectedNodeId, setSelectedNodeId] = useState(null);
-  const [connectSourceId, setConnectSourceId] = useState(null);
-
-  const currentProject = projects.find(p => p.id === currentProjectId);
-
-  // --- 핵심 액션 ---
-  const handleCreateConfirm = () => {
-    if (!newProjectName.trim()) return;
-    
-    const newId = "p_" + Date.now();
-    const newProj = {
-      id: newId,
-      title: newProjectName,
-      nodes: [
-        { id: 'n1', type: 'memo', x: 50, y: 100, content: '기초 데이터 블록입니다.' },
-        { id: 'n2', type: 'ai', x: 400, y: 100, content: '위 데이터를 분석하여 보고서 초안을 작성해줘.' }
-      ],
-      connections: [{ from: 'n1', to: 'n2' }]
-    };
-    
-    setProjects(prev => [...prev, newProj]);
-    setCurrentProjectId(newId);
-    setNewProjectName('');
-    setIsCreating(false);
-    setView('canvas');
-  };
-
-  const addNode = (type) => {
-    const newNode = {
-      id: 'n_' + Date.now(),
-      type: type,
-      x: 100 + (Math.random() * 50),
-      y: 100 + (Math.random() * 50),
-      content: type === 'ai' ? 'AI 실행 지시사항을 입력하세요.' : '새로운 메모 데이터입니다.'
-    };
-    setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, nodes: [...p.nodes, newNode] } : p));
-  };
-
-  const handleConnect = (targetId) => {
-    if (!connectSourceId || connectSourceId === targetId) {
-      setConnectSourceId(null);
-      return;
-    }
-    const exists = currentProject.connections.find(c => c.from === connectSourceId && c.to === targetId);
-    let newConns = exists 
-      ? currentProject.connections.filter(c => !(c.from === connectSourceId && c.to === targetId))
-      : [...currentProject.connections, { from: connectSourceId, to: targetId }];
-      
-    setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, connections: newConns } : p));
-    setConnectSourceId(null);
-  };
-
-  // --- 드래그 핸들러 ---
-  const onMouseDown = (e, id) => {
-    if (e.target.closest('.no-drag')) return;
-    setIsDragging(true);
-    setDraggedId(id);
-    const node = currentProject.nodes.find(n => n.id === id);
-    setOffset({ x: e.clientX - node.x, y: e.clientY - node.y });
-  };
-
-  const onMouseMove = (e) => {
-    if (!isDragging || !draggedId) return;
-    const newNodes = currentProject.nodes.map(n => 
-      n.id === draggedId ? { ...n, x: e.clientX - offset.x, y: e.clientY - offset.y } : n
-    );
-    setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, nodes: newNodes } : p));
-  };
-
-  const onMouseUp = () => {
-    setIsDragging(false);
-    setDraggedId(null);
-  };
-
-  const getCurvePath = (x1, y1, x2, y2) => {
-    const dx = Math.abs(x2 - x1) * 0.4;
-    return `M ${x1 + 280} ${y1 + 40} C ${x1 + 280 + dx} ${y1 + 40}, ${x2 - dx} ${y2 + 40}, ${x2} ${y2 + 40}`;
-  };
-
-  // --- 대시보드 화면 ---
-  if (view === 'dashboard') {
-    return (
-      <div className="h-screen w-full bg-white flex flex-col items-center justify-center p-6 font-sans">
-        <div className="max-w-md w-full text-center">
-          <div className="mb-12">
-            <h1 className="text-7xl font-black text-slate-900 mb-4 tracking-tighter">FLOW</h1>
-            <p className="text-slate-400 font-bold uppercase tracking-[0.4em] text-[10px]">AI Work-Relation Engine</p>
-          </div>
-
-          {!isCreating ? (
-            <button 
-              onClick={() => setIsCreating(true)}
-              className="w-full bg-slate-900 text-white py-8 rounded-[2.5rem] font-black text-2xl shadow-2xl hover:bg-indigo-600 transition-all active:scale-95 flex items-center justify-center gap-4 group"
-            >
-              <Plus size={32} className="group-hover:rotate-90 transition-transform" /> 
-              프로젝트 시작하기
+    <!-- Dashboard View -->
+    <div id="dashboard" class="h-screen w-full flex flex-col items-center justify-center p-6 bg-slate-50">
+        <div class="max-w-md w-full text-center">
+            <h1 class="text-8xl font-black text-slate-900 mb-2 italic tracking-tighter">FLOW</h1>
+            <p class="text-indigo-600 font-bold tracking-[0.4em] text-[10px] mb-12 uppercase">Intelligent Workflow Engine</p>
+            <button onclick="showCreateModal()" class="w-full bg-slate-900 text-white py-8 rounded-[2.5rem] font-black text-2xl shadow-2xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-4 group active:scale-95">
+                <i data-lucide="plus" class="w-8 h-8"></i> 프로젝트 시작하기
             </button>
-          ) : (
-            <div className="bg-slate-50 p-8 rounded-[2.5rem] border-2 border-slate-100 animate-in zoom-in-95 duration-200">
-              <input 
-                autoFocus
-                type="text"
-                placeholder="워크플로우 이름..."
-                className="w-full bg-transparent border-b-4 border-slate-200 py-3 text-2xl font-black outline-none focus:border-indigo-500 mb-6 transition-colors"
-                value={newProjectName}
-                onChange={(e) => setNewProjectName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateConfirm()}
-              />
-              <div className="flex gap-3">
-                <button onClick={() => setIsCreating(false)} className="flex-1 py-4 font-bold text-slate-400 hover:text-slate-600">취소</button>
-                <button onClick={handleCreateConfirm} className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-indigo-100">생성하기</button>
-              </div>
-            </div>
-          )}
-
-          {projects.length > 0 && (
-            <div className="mt-16 text-left">
-              <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-6 ml-2">Recent Workflows</p>
-              <div className="grid grid-cols-1 gap-3 max-h-[250px] overflow-y-auto pr-2">
-                {projects.map(p => (
-                  <div key={p.id} onClick={() => { setCurrentProjectId(p.id); setView('canvas'); }}
-                       className="bg-white border-2 border-slate-50 p-6 rounded-3xl cursor-pointer hover:border-indigo-600 hover:shadow-xl transition-all flex justify-between items-center group">
-                    <h3 className="font-bold text-slate-800 text-lg group-hover:text-indigo-600">{p.title}</h3>
-                    <ArrowRight className="text-slate-200 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+            <div id="project-list" class="mt-12 text-left space-y-3"></div>
         </div>
-      </div>
-    );
-  }
-
-  // --- 캔버스 화면 ---
-  const selectedNode = currentProject?.nodes.find(n => n.id === selectedNodeId);
-
-  return (
-    <div className="h-screen w-full bg-white flex flex-col overflow-hidden select-none" onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
-      <header className="h-20 border-b flex items-center justify-between px-8 bg-white z-20 shrink-0">
-        <div className="flex items-center gap-6">
-          <button onClick={() => setView('dashboard')} className="p-3 hover:bg-slate-50 rounded-2xl text-slate-400 transition-colors">
-            <LayoutGrid size={24} />
-          </button>
-          <h2 className="font-black text-slate-900 text-xl tracking-tight">{currentProject.title}</h2>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={() => addNode('memo')} className="flex items-center gap-2 bg-slate-100 text-slate-700 px-5 py-2.5 rounded-xl font-bold hover:bg-slate-200 transition-all no-drag">
-            <MessageSquare size={18} /> 메모 블록
-          </button>
-          <button onClick={() => addNode('ai')} className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all no-drag">
-            <Cpu size={18} /> AI 지시 블록
-          </button>
-        </div>
-      </header>
-
-      <div className="flex-1 relative bg-slate-50 overflow-hidden">
-        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1.5px, transparent 1.5px)', backgroundSize: '30px 30px' }}></div>
-        
-        {/* 연결선 SVG 레이어 */}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none">
-          <defs>
-            <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" />
-            </marker>
-          </defs>
-          {currentProject.connections.map((conn, i) => {
-            const from = currentProject.nodes.find(n => n.id === conn.from);
-            const to = currentProject.nodes.find(n => n.id === conn.to);
-            if (!from || !to) return null;
-            return (
-              <path key={i} d={getCurvePath(from.x, from.y, to.x, to.y)} 
-                    fill="none" stroke="#cbd5e1" strokeWidth="3" markerEnd="url(#arrow)" />
-            );
-          })}
-        </svg>
-
-        {/* 블록 렌더링 */}
-        {currentProject.nodes.map(node => (
-          <div key={node.id} onMouseDown={(e) => onMouseDown(e, node.id)}
-               style={{ left: node.x, top: node.y }}
-               className={`absolute w-72 bg-white rounded-[2rem] shadow-2xl border-2 transition-all cursor-grab active:cursor-grabbing
-               ${connectSourceId === node.id ? 'border-amber-400 ring-4 ring-amber-50' : selectedNodeId === node.id ? 'border-indigo-500' : 'border-transparent'}`}>
-            
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg tracking-wider ${node.type === 'ai' ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-500'}`}>
-                  {node.type === 'ai' ? 'AI INSTRUCTION' : 'DATA MEMO'}
-                </span>
-                <div className="flex gap-1 no-drag">
-                  <button onClick={(e) => { e.stopPropagation(); setConnectSourceId(node.id); }} className={`p-2 rounded-lg transition-colors ${connectSourceId === node.id ? 'bg-amber-100 text-amber-600' : 'hover:bg-slate-50 text-slate-300'}`}>
-                    <Link2 size={16} />
-                  </button>
-                  {connectSourceId && connectSourceId !== node.id && (
-                    <button onClick={(e) => { e.stopPropagation(); handleConnect(node.id); }} className="p-2 bg-amber-500 text-white rounded-lg animate-pulse">
-                      <MousePointer2 size={16} />
-                    </button>
-                  )}
-                  <button onClick={(e) => { e.stopPropagation(); setSelectedNodeId(node.id); }} className="p-2 hover:bg-slate-50 text-slate-300 rounded-lg">
-                    <Zap size={16} />
-                  </button>
-                </div>
-              </div>
-              <p className="text-sm text-slate-700 font-bold leading-relaxed line-clamp-3 overflow-hidden h-14">
-                {node.content || <span className="text-slate-200">내용을 입력하세요...</span>}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* 우측 에디터 패널 */}
-      {selectedNode && (
-        <div className="w-[400px] bg-white border-l shadow-2xl z-30 flex flex-col animate-in slide-in-from-right duration-300">
-          <div className="p-8 border-b flex justify-between items-center">
-            <h3 className="font-black text-slate-900 uppercase tracking-tighter text-xl">Block Details</h3>
-            <button onClick={() => setSelectedNodeId(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X /></button>
-          </div>
-          <div className="flex-1 p-8 overflow-y-auto space-y-10">
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Block Content</label>
-                <span className={`px-3 py-1 rounded-full text-[10px] font-black ${selectedNode.type === 'ai' ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
-                  {selectedNode.type.toUpperCase()}
-                </span>
-              </div>
-              <textarea 
-                className="w-full h-80 p-6 bg-slate-50 border-4 border-transparent focus:border-indigo-600 focus:bg-white rounded-[2rem] outline-none transition-all text-base leading-relaxed font-bold text-slate-700"
-                value={selectedNode.content}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const newNodes = currentProject.nodes.map(n => n.id === selectedNode.id ? { ...n, content: val } : n);
-                  setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, nodes: newNodes } : p));
-                }}
-              />
-            </div>
-            {selectedNode.type === 'ai' && (
-              <button className="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black text-lg shadow-xl shadow-indigo-100 flex items-center justify-center gap-3 hover:bg-indigo-700 active:scale-95 transition-all group">
-                <Play size={20} fill="currentColor" className="group-hover:scale-110 transition-transform" /> AI 실행 프로세스 가동
-              </button>
-            )}
-          </div>
-          <div className="p-8 bg-slate-50 border-t flex gap-4">
-            <button 
-              onClick={() => {
-                const newNodes = currentProject.nodes.filter(n => n.id !== selectedNode.id);
-                setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, nodes: newNodes } : p));
-                setSelectedNodeId(null);
-              }}
-              className="flex-1 py-4 text-red-400 font-black hover:bg-red-50 rounded-2xl transition-all flex items-center justify-center gap-2 border-2 border-transparent hover:border-red-100"
-            >
-              <Trash2 size={18} /> 삭제
-            </button>
-            <button onClick={() => setSelectedNodeId(null)} className="flex-1 py-4 bg-slate-900 text-white font-black rounded-2xl shadow-lg">저장 완료</button>
-          </div>
-        </div>
-      )}
     </div>
-  );
-};
 
-export default App;
+    <!-- Canvas View -->
+    <div id="app-canvas" class="hidden h-screen w-full bg-white flex flex-col overflow-hidden select-none">
+        <header class="h-20 border-b flex items-center justify-between px-10 bg-white z-20 shrink-0">
+            <div class="flex items-center gap-6">
+                <button onclick="goToDashboard()" class="p-3 hover:bg-slate-50 rounded-2xl text-slate-400 transition-colors">
+                    <i data-lucide="layout-grid"></i>
+                </button>
+                <h2 id="project-title-display" class="font-black text-slate-900 text-xl tracking-tight">Project Name</h2>
+            </div>
+            <div class="flex gap-4">
+                <button onclick="addNode('memo')" class="flex items-center gap-2 bg-slate-100 text-slate-700 px-6 py-3 rounded-2xl font-bold hover:bg-slate-200 transition-all">
+                    <i data-lucide="message-square" class="w-5 h-5"></i> 메모 블록
+                </button>
+                <button onclick="addNode('ai')" class="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all">
+                    <i data-lucide="cpu" class="w-5 h-5"></i> AI 지시 블록
+                </button>
+            </div>
+        </header>
+        
+        <div id="canvas-container" class="bg-slate-50">
+            <div class="absolute inset-0 opacity-[0.05] pointer-events-none canvas-dot"></div>
+            <svg id="connections-svg">
+                <defs>
+                    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" />
+                    </marker>
+                </defs>
+            </svg>
+            <div id="nodes-layer"></div>
+        </div>
+    </div>
+
+    <!-- Modals & Panels -->
+    <div id="create-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div class="bg-white p-10 rounded-[3rem] shadow-2xl max-w-md w-full border border-slate-200">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 block">New Workflow Name</label>
+            <input id="new-project-name" type="text" placeholder="이름을 입력하세요..." class="w-full border-b-4 border-slate-100 py-3 text-2xl font-black outline-none focus:border-indigo-600 mb-8 transition-all" />
+            <div class="flex gap-4">
+                <button onclick="hideCreateModal()" class="flex-1 font-bold text-slate-400">취소</button>
+                <button onclick="confirmCreateProject()" class="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-black active:scale-95 transition-all">생성 및 진입</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="side-panel" class="hidden fixed top-0 right-0 h-full w-[450px] bg-white border-l shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
+        <div class="p-10 border-b flex justify-between items-center">
+            <h3 class="font-black text-slate-900 text-2xl uppercase tracking-tighter">Properties</h3>
+            <button onclick="closePanel()" class="p-3 hover:bg-slate-100 rounded-full transition-colors"><i data-lucide="x" class="w-6 h-6"></i></button>
+        </div>
+        <div class="flex-1 p-10 overflow-y-auto space-y-12">
+            <div class="space-y-4">
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-2">Content Payload</label>
+                <textarea id="panel-content" oninput="updateNodeContentFromPanel(this.value)" class="w-full h-96 p-8 bg-slate-50 border-4 border-transparent focus:border-indigo-600 focus:bg-white rounded-[2.5rem] outline-none transition-all text-base font-bold text-slate-800 shadow-inner"></textarea>
+            </div>
+        </div>
+        <div class="p-10 bg-slate-50 border-t flex gap-4">
+            <button id="delete-node-btn" class="flex-1 py-5 text-red-500 font-black hover:bg-red-50 rounded-2xl transition-colors">삭제</button>
+            <button onclick="closePanel()" class="flex-[2] py-5 bg-indigo-600 text-white font-black rounded-2xl shadow-xl">완료</button>
+        </div>
+    </div>
+
+    <script>
+        // --- State ---
+        let state = {
+            currentProject: null,
+            projects: [],
+            isDragging: false,
+            draggedId: null,
+            dragOffset: { x: 0, y: 0 },
+            selectedNodeId: null,
+            connectSourceId: null
+        };
+
+        // --- Core Functions ---
+        function init() {
+            lucide.createIcons();
+            renderProjectList();
+        }
+
+        function showCreateModal() {
+            document.getElementById('create-modal').classList.remove('hidden');
+            document.getElementById('new-project-name').focus();
+        }
+
+        function hideCreateModal() {
+            document.getElementById('create-modal').classList.add('hidden');
+        }
+
+        function confirmCreateProject() {
+            const name = document.getElementById('new-project-name').value.trim() || "새 워크플로우";
+            const newProject = {
+                id: 'p_' + Date.now(),
+                title: name,
+                nodes: [
+                    { id: 'n1', type: 'memo', x: 100, y: 150, content: '기초 아이디어를 입력하세요.' },
+                    { id: 'n2', type: 'ai', x: 500, y: 150, content: '데이터 분석 지시문을 입력하세요.' }
+                ],
+                connections: [{ from: 'n1', to: 'n2' }]
+            };
+            state.projects.push(newProject);
+            openProject(newProject.id);
+            hideCreateModal();
+            document.getElementById('new-project-name').value = '';
+        }
+
+        function openProject(id) {
+            state.currentProject = state.projects.find(p => p.id === id);
+            document.getElementById('dashboard').classList.add('hidden');
+            document.getElementById('app-canvas').classList.remove('hidden');
+            document.getElementById('project-title-display').innerText = state.currentProject.title;
+            renderCanvas();
+        }
+
+        function goToDashboard() {
+            state.currentProject = null;
+            document.getElementById('app-canvas').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            renderProjectList();
+        }
+
+        function addNode(type) {
+            const newNode = {
+                id: 'n_' + Date.now(),
+                type: type,
+                x: 200 + (Math.random() * 50),
+                y: 200 + (Math.random() * 50),
+                content: type === 'ai' ? 'AI 지시 프롬프트를 입력하세요.' : '새 메모 내용을 입력하세요.'
+            };
+            state.currentProject.nodes.push(newNode);
+            renderCanvas();
+        }
+
+        // --- Rendering ---
+        function renderProjectList() {
+            const container = document.getElementById('project-list');
+            if (state.projects.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            container.innerHTML = `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Saved Engines</p>` + 
+                state.projects.map(p => `
+                    <div onclick="openProject('${p.id}')" class="bg-white p-6 rounded-3xl cursor-pointer border-2 border-transparent hover:border-indigo-600 shadow-sm flex justify-between items-center group transition-all">
+                        <span class="font-bold text-slate-800 text-lg group-hover:text-indigo-600">${p.title}</span>
+                        <i data-lucide="arrow-right" class="text-slate-300 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all"></i>
+                    </div>
+                `).join('');
+            lucide.createIcons();
+        }
+
+        function renderCanvas() {
+            const nodesLayer = document.getElementById('nodes-layer');
+            nodesLayer.innerHTML = state.currentProject.nodes.map(node => `
+                <div id="${node.id}" 
+                     onmousedown="handleMouseDown(event, '${node.id}')"
+                     style="left: ${node.x}px; top: ${node.y}px;" 
+                     class="node absolute w-72 bg-white rounded-[2.5rem] shadow-2xl border-4 ${state.selectedNodeId === node.id ? 'border-indigo-600' : 'border-white'}">
+                    <div class="p-8">
+                        <div class="flex justify-between items-center mb-6">
+                            <span class="text-[9px] font-black uppercase px-3 py-1.5 rounded-full tracking-wider ${node.type === 'ai' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}">${node.type}</span>
+                            <div class="flex gap-2">
+                                <button onclick="startConnection(event, '${node.id}')" class="p-2 rounded-xl bg-slate-50 text-slate-300 hover:text-indigo-600"><i data-lucide="link-2" class="w-4 h-4"></i></button>
+                                <button onclick="openPanel('${node.id}')" class="p-2 bg-slate-50 text-slate-300 hover:text-indigo-600 rounded-xl"><i data-lucide="zap" class="w-4 h-4"></i></button>
+                            </div>
+                        </div>
+                        <p class="text-sm text-slate-800 font-bold h-14 line-clamp-3 leading-relaxed">${node.content}</p>
+                    </div>
+                </div>
+            `).join('');
+            
+            drawConnections();
+            lucide.createIcons();
+        }
+
+        function drawConnections() {
+            const svg = document.getElementById('connections-svg');
+            const lines = state.currentProject.connections.map(conn => {
+                const from = state.currentProject.nodes.find(n => n.id === conn.from);
+                const to = state.currentProject.nodes.find(n => n.id === conn.to);
+                if (!from || !to) return '';
+                
+                const x1 = from.x + 280;
+                const y1 = from.y + 45;
+                const x2 = to.x;
+                const y2 = to.y + 45;
+                const dx = Math.abs(x2 - x1) * 0.4;
+                
+                return `<path d="M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}" fill="none" stroke="#cbd5e1" stroke-width="4" marker-end="url(#arrow)" stroke-linecap="round" />`;
+            }).join('');
+            
+            svg.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" /></marker></defs>` + lines;
+        }
+
+        // --- Interaction ---
+        function handleMouseDown(e, id) {
+            if (e.target.closest('button')) return;
+            state.isDragging = true;
+            state.draggedId = id;
+            const node = state.currentProject.nodes.find(n => n.id === id);
+            state.dragOffset = { x: e.clientX - node.x, y: e.clientY - node.y };
+            document.getElementById(id).style.zIndex = 100;
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            if (!state.isDragging || !state.draggedId) return;
+            const node = state.currentProject.nodes.find(n => n.id === state.draggedId);
+            node.x = e.clientX - state.dragOffset.x;
+            node.y = e.clientY - state.dragOffset.y;
+            
+            const el = document.getElementById(state.draggedId);
+            el.style.left = node.x + 'px';
+            el.style.top = node.y + 'px';
+            drawConnections();
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (state.draggedId) {
+                document.getElementById(state.draggedId).style.zIndex = 10;
+            }
+            state.isDragging = false;
+            state.draggedId = null;
+        });
+
+        function openPanel(id) {
+            state.selectedNodeId = id;
+            const node = state.currentProject.nodes.find(n => n.id === id);
+            document.getElementById('panel-content').value = node.content;
+            document.getElementById('side-panel').classList.remove('hidden');
+            document.getElementById('delete-node-btn').onclick = () => deleteNode(id);
+            renderCanvas();
+        }
+
+        function closePanel() {
+            state.selectedNodeId = null;
+            document.getElementById('side-panel').classList.add('hidden');
+            renderCanvas();
+        }
+
+        function updateNodeContentFromPanel(val) {
+            const node = state.currentProject.nodes.find(n => n.id === state.selectedNodeId);
+            if (node) {
+                node.content = val;
+                const nodeEl = document.getElementById(node.id);
+                if (nodeEl) nodeEl.querySelector('p').innerText = val;
+            }
+        }
+
+        function deleteNode(id) {
+            state.currentProject.nodes = state.currentProject.nodes.filter(n => n.id !== id);
+            state.currentProject.connections = state.currentProject.connections.filter(c => c.from !== id && c.to !== id);
+            closePanel();
+        }
+
+        function startConnection(e, id) {
+            e.stopPropagation();
+            if (!state.connectSourceId) {
+                state.connectSourceId = id;
+                document.getElementById(id).classList.add('ring-8', 'ring-amber-50', 'border-amber-400');
+            } else {
+                if (state.connectSourceId !== id) {
+                    state.currentProject.connections.push({ from: state.connectSourceId, to: id });
+                }
+                document.getElementById(state.connectSourceId).classList.remove('ring-8', 'ring-amber-50', 'border-amber-400');
+                state.connectSourceId = null;
+                renderCanvas();
+            }
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
